@@ -1,0 +1,65 @@
+name: Retry Oracle A1
+
+on:
+  schedule:
+    # 每 30 分钟一次（UTC）；GitHub 定时任务可能延迟几分钟
+    - cron: '17,47 * * * *'
+  workflow_dispatch: {}   # 允许在 Actions 页面手动触发
+
+permissions:
+  contents: read
+  actions: write          # 抢到后用来自动关闭本 workflow
+
+concurrency:
+  group: oracle-a1
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OCI CLI
+        run: pipx install oci-cli
+
+      - name: Write OCI config
+        env:
+          OCI_USER: ${{ secrets.OCI_USER }}
+          OCI_TENANCY: ${{ secrets.OCI_TENANCY }}
+          OCI_FINGERPRINT: ${{ secrets.OCI_FINGERPRINT }}
+          OCI_KEY: ${{ secrets.OCI_KEY }}
+        run: |
+          mkdir -p ~/.oci
+          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          chmod 600 ~/.oci/key.pem
+          cat > ~/.oci/config <<EOF
+          [DEFAULT]
+          user=$OCI_USER
+          fingerprint=$OCI_FINGERPRINT
+          tenancy=$OCI_TENANCY
+          region=ap-sydney-1
+          key_file=$HOME/.oci/key.pem
+          EOF
+          chmod 600 ~/.oci/config
+
+      - name: Try apply
+        id: try
+        env:
+          STACK_ID: ${{ secrets.STACK_ID }}
+          COMPARTMENT_ID: ${{ secrets.OCI_TENANCY }}
+        run: |
+          set +e
+          bash retry_a1.sh
+          code=$?
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          # 只有"其他错误"才让这次运行标红；没货(2)算正常
+          if [ "$code" -eq 1 ]; then exit 1; fi
+          exit 0
+
+      - name: Disable schedule after success
+        if: steps.try.outputs.code == '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow disable "${{ github.workflow }}" --repo "${{ github.repository }}"
