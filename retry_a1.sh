@@ -17,6 +17,15 @@ OCI="${OCI_BIN:-oci}"
 export OCI_CLI_SUPPRESS_FILE_PERMISSIONS_WARNING=True
 
 ts() { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
+ERR_LOG="$(mktemp)"
+
+# 0) 先验证 API key 能不能登录（失败会打印 OCI 的原始报错）
+if ! $OCI iam region-subscription list --tenancy-id "$COMPARTMENT_ID" >/dev/null 2>"$ERR_LOG"; then
+  echo "$(ts) ❌ OCI 认证失败，原始报错："
+  sed 's/^/    /' "$ERR_LOG"
+  exit 1
+fi
+echo "$(ts) ✓ OCI 认证通过"
 
 # 1) 已经有未终止的 A1 实例就不再 Apply
 count=$($OCI compute instance list --compartment-id "$COMPARTMENT_ID" --all \
@@ -35,10 +44,11 @@ job_json=$($OCI resource-manager job create-apply-job \
   --execution-plan-strategy AUTO_APPROVED \
   --display-name "auto-apply-$(date -u +%Y%m%d%H%M)" \
   --wait-for-state SUCCEEDED --wait-for-state FAILED \
-  --max-wait-seconds 1200 2>/dev/null)
+  --max-wait-seconds 1200 2>"$ERR_LOG")
 rc=$?
 if (( rc != 0 )) || [[ -z "$job_json" ]]; then
-  echo "$(ts) ❌ 提交 job 失败（rc=$rc），检查 API key / STACK_ID。"
+  echo "$(ts) ❌ 提交 job 失败（rc=$rc），原始报错："
+  sed 's/^/    /' "$ERR_LOG"
   exit 1
 fi
 
