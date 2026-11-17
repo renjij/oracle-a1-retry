@@ -32,8 +32,18 @@ jobs:
           OCI_KEY: ${{ secrets.OCI_KEY }}
         run: |
           mkdir -p ~/.oci
-          printf '%s\n' "$OCI_KEY" > ~/.oci/key.pem
+          # 自动修复常见粘贴问题：字面量 \n、Windows 换行
+          printf '%s\n' "$OCI_KEY" | sed 's/\\n/\n/g' | tr -d '\r' > ~/.oci/key.pem
           chmod 600 ~/.oci/key.pem
+          # 诊断信息（只显示格式，不显示密钥内容）
+          echo "key lines : $(wc -l < ~/.oci/key.pem)"
+          echo "header    : $(head -1 ~/.oci/key.pem | tr 'A-Z' 'a-z')"
+          echo "footer    : $(grep -- '-----END' ~/.oci/key.pem | tr 'A-Z' 'a-z')"
+          if openssl pkey -in ~/.oci/key.pem -noout 2>/dev/null; then
+            echo "openssl   : valid private key"
+          else
+            echo "openssl   : NOT a valid private key"
+          fi
           cat > ~/.oci/config <<EOF
           [DEFAULT]
           user=$OCI_USER
