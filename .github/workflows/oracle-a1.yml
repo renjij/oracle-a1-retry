@@ -34,11 +34,17 @@ jobs:
           mkdir -p ~/.oci
           # 自动修复常见粘贴问题：字面量 \n、Windows 换行
           printf '%s\n' "$OCI_KEY" | sed 's/\\n/\n/g' | tr -d '\r' > ~/.oci/key.pem
-          chmod 600 ~/.oci/key.pem
-          # 诊断信息（只显示格式，不显示密钥内容）
+          # 只粘贴了中间内容、缺少首尾标记时自动补上（PKCS#8 格式）
+          if ! grep -q -- '-----BEGIN' ~/.oci/key.pem; then
+            { echo '-----BEGIN PRIVATE KEY-----'; grep -v '^[[:space:]]*$' ~/.oci/key.pem; echo '-----END PRIVATE KEY-----'; } > ~/.oci/key.tmp
+            mv ~/.oci/key.tmp ~/.oci/key.pem
+            chmod 600 ~/.oci/key.pem
+            echo "added missing BEGIN/END lines"
+          fi
+          # 诊断信息（只显示格式，不显示任何密钥内容）
           echo "key lines : $(wc -l < ~/.oci/key.pem)"
-          echo "header    : $(head -1 ~/.oci/key.pem | tr 'A-Z' 'a-z')"
-          echo "footer    : $(grep -- '-----END' ~/.oci/key.pem | tr 'A-Z' 'a-z')"
+          echo "has BEGIN : $(grep -c -- '-----BEGIN' ~/.oci/key.pem)"
+          echo "has END   : $(grep -c -- '-----END' ~/.oci/key.pem)"
           if openssl pkey -in ~/.oci/key.pem -noout 2>/dev/null; then
             echo "openssl   : valid private key"
           else
